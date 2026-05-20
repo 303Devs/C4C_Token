@@ -39,7 +39,7 @@ async function main() {
   console.log("C4CToken:    ", c4cAddress);
   console.log("isTestnet:   ", await c4c.isTestnet()); // must be false
   console.log("totalSupply: ", ethers.formatEther(await c4c.totalSupply()), "C4C");
-  console.log("Owner:       ", deployer.address);
+  console.log("Owner:       ", INITIAL_OWNER);
   console.log("\nNext steps:");
   console.log("1. Verify the contract on Basescan (run: npm run verify:mainnet)");
   console.log("2. Confirm totalSupply() == 1,000,000,000 C4C on-chain");

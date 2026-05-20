@@ -5,10 +5,10 @@ const BASE_SEPOLIA_CHAIN_ID = 84532;
 async function main() {
   // JS-side assertion: refuse to run against the wrong chain.
   const chainId = network.config.chainId;
-  if (chainId !== undefined && chainId !== BASE_SEPOLIA_CHAIN_ID) {
+  if (chainId === undefined || chainId !== BASE_SEPOLIA_CHAIN_ID) {
     throw new Error(
       `deploy-testnet.ts must only run on Base Sepolia (${BASE_SEPOLIA_CHAIN_ID}). ` +
-      `Got chainId ${chainId}. Use --network baseSepolia.`,
+      `Got chainId ${chainId ?? "undefined"}. Use --network baseSepolia.`,
     );
   }
 
