@@ -14,9 +14,6 @@ describe("C4CToken", () => {
   const FAUCET_AMOUNT = ethers.parseEther("1000");
   const FAUCET_COOLDOWN = 86400n; // 1 day in seconds
 
-  // ---------------------------------------------------------------------------
-  // Mainnet mode
-  // ---------------------------------------------------------------------------
   describe("Mainnet mode (testnet = false)", () => {
     beforeEach(async () => {
       [owner, user] = await ethers.getSigners();
@@ -84,9 +81,6 @@ describe("C4CToken", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Testnet mode
-  // ---------------------------------------------------------------------------
   describe("Testnet mode (testnet = true)", () => {
     beforeEach(async () => {
       [owner, user, other] = await ethers.getSigners();
@@ -112,7 +106,7 @@ describe("C4CToken", () => {
     it("faucet() succeeds exactly at cooldown boundary", async () => {
       await token.connect(user).faucet();
       const lastAt = await token.lastFaucetAt(user.address);
-      // advance time to exactly lastAt + FAUCET_COOLDOWN
+      // Advance time to exactly lastAt + FAUCET_COOLDOWN.
       await time.setNextBlockTimestamp(lastAt + FAUCET_COOLDOWN);
       await expect(token.connect(user).faucet()).to.not.be.reverted;
       expect(await token.balanceOf(user.address)).to.equal(FAUCET_AMOUNT * 2n);
@@ -138,9 +132,6 @@ describe("C4CToken", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Constructor edge cases
-  // ---------------------------------------------------------------------------
   describe("Constructor edge cases", () => {
     it("reverts deploy when initialOwner is zero address (mainnet mode)", async () => {
       const Factory = await ethers.getContractFactory("C4CToken");
@@ -173,23 +164,95 @@ describe("C4CToken", () => {
     // This cannot be tested in normal Hardhat CI without a forked network config.
   });
 
-  // ---------------------------------------------------------------------------
-  // ERC20Permit
-  // ---------------------------------------------------------------------------
-  describe("ERC20Permit (EIP-2612)", () => {
-    it("exposes a non-zero domain separator", async () => {
-      [owner] = await ethers.getSigners();
-      const Factory = await ethers.getContractFactory("C4CToken");
-      token = await Factory.deploy(owner.address, false);
-      const sep = await token.DOMAIN_SEPARATOR();
-      expect(sep).to.not.equal(ethers.ZeroHash);
+  describe("Permit (ERC-2612)", () => {
+    let token: C4CToken;
+    let owner: SignerWithAddress;
+    let spender: SignerWithAddress;
+    let other: SignerWithAddress;
+
+    const PERMIT_AMOUNT = ethers.parseEther("250");
+
+    async function signPermit(
+      signer: SignerWithAddress,
+      tokenContract: C4CToken,
+      spenderAddress: string,
+      amount: bigint,
+      deadline: bigint,
+    ) {
+      const domain = {
+        name: "CurrencyForCivilization",
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await tokenContract.getAddress(),
+      };
+      const types = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+      const nonce = await tokenContract.nonces(signer.address);
+      const sig = await signer.signTypedData(domain, types, {
+        owner: signer.address,
+        spender: spenderAddress,
+        value: amount,
+        nonce,
+        deadline,
+      });
+      return ethers.Signature.from(sig);
+    }
+
+    beforeEach(async () => {
+      [owner, spender, other] = await ethers.getSigners();
+      const TokenFactory = await ethers.getContractFactory("C4CToken");
+      token = await TokenFactory.deploy(owner.address, true);
+      await token.connect(owner).faucet();
     });
 
-    it("has nonces starting at 0 for a fresh address", async () => {
-      [owner, user] = await ethers.getSigners();
-      const Factory = await ethers.getContractFactory("C4CToken");
-      token = await Factory.deploy(owner.address, false);
-      expect(await token.nonces(user.address)).to.equal(0n);
+    it("exposes nonces() and DOMAIN_SEPARATOR()", async () => {
+      expect(await token.nonces(owner.address)).to.equal(0n);
+      expect(await token.DOMAIN_SEPARATOR()).to.be.a("string").and.match(/^0x/);
+    });
+
+    it("sets allowance via permit without a prior approve transaction", async () => {
+      const deadline = BigInt(await time.latest()) + 300n;
+      const { v, r, s } = await signPermit(owner, token, spender.address, PERMIT_AMOUNT, deadline);
+
+      await token.permit(owner.address, spender.address, PERMIT_AMOUNT, deadline, v, r, s);
+
+      expect(await token.allowance(owner.address, spender.address)).to.equal(PERMIT_AMOUNT);
+      expect(await token.nonces(owner.address)).to.equal(1n);
+    });
+
+    it("nonce increments after each permit - prevents replay", async () => {
+      const deadline = BigInt(await time.latest()) + 300n;
+      const sig1 = await signPermit(owner, token, spender.address, PERMIT_AMOUNT, deadline);
+      await token.permit(owner.address, spender.address, PERMIT_AMOUNT, deadline, sig1.v, sig1.r, sig1.s);
+
+      await expect(
+        token.permit(owner.address, spender.address, PERMIT_AMOUNT, deadline, sig1.v, sig1.r, sig1.s),
+      ).to.be.reverted;
+    });
+
+    it("reverts if permit signature is expired", async () => {
+      const expiredDeadline = BigInt(await time.latest()) - 1n;
+      const { v, r, s } = await signPermit(owner, token, spender.address, PERMIT_AMOUNT, expiredDeadline);
+
+      await expect(
+        token.permit(owner.address, spender.address, PERMIT_AMOUNT, expiredDeadline, v, r, s),
+      ).to.be.reverted;
+    });
+
+    it("reverts if permit signature is signed by the wrong key", async () => {
+      const deadline = BigInt(await time.latest()) + 300n;
+      const { v, r, s } = await signPermit(other, token, spender.address, PERMIT_AMOUNT, deadline);
+
+      await expect(
+        token.permit(owner.address, spender.address, PERMIT_AMOUNT, deadline, v, r, s),
+      ).to.be.reverted;
     });
   });
 });

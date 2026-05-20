@@ -9,6 +9,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title CurrencyForCivilization (C4C)
  * @notice ERC-20 token for the Civil Protocol ecosystem.
+ *         ERC-2612 Permit allows off-chain approval signatures so arcade plays
+ *         require only one on-chain transaction (depositFeeWithPermit) instead of
+ *         approve + depositFee.
  *
  * Mainnet mode (testnet = false):
  *   - 1,000,000,000 C4C minted to initialOwner at deployment. No further minting.
@@ -26,7 +29,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  *      effect on token economics or faucet behavior.
  */
 contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
-    // Token economics
     uint256 public constant MAINNET_SUPPLY = 1_000_000_000 * 10 ** 18;
     uint256 public constant FAUCET_AMOUNT = 1_000 * 10 ** 18;
     uint256 public constant FAUCET_COOLDOWN = 1 days;
@@ -54,14 +56,8 @@ contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
     /// @param chainId The chain ID at deploy time.
     error C4CTestnetOnProductionChain(uint256 chainId);
 
-    // -------------------------------------------------------------------------
-    // Events
-    // -------------------------------------------------------------------------
     event FaucetUsed(address indexed recipient, uint256 amount);
 
-    // -------------------------------------------------------------------------
-    // Constructor
-    // -------------------------------------------------------------------------
     constructor(
         address initialOwner,
         bool testnet
@@ -86,9 +82,6 @@ contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Faucet
-    // -------------------------------------------------------------------------
     /**
      * @notice Dispense 1,000 C4C to caller. Testnet only. 24-hour cooldown per address.
      */
@@ -101,9 +94,6 @@ contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
         emit FaucetUsed(msg.sender, FAUCET_AMOUNT);
     }
 
-    // -------------------------------------------------------------------------
-    // Metadata
-    // -------------------------------------------------------------------------
     /**
      * @notice Returns decimals. Standard ERC-20 is 18.
      */
