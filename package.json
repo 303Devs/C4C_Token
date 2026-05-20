@@ -8,6 +8,7 @@
     "test": "hardhat test",
     "deploy:testnet": "hardhat run scripts/deploy-testnet.ts --network baseSepolia",
     "verify:testnet": "hardhat run scripts/verify-testnet.ts --network baseSepolia",
+    "verify:mainnet": "hardhat run scripts/verify-mainnet.ts --network baseMainnet",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
