@@ -20,25 +20,62 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * Testnet mode (testnet = true):
  *   - No initial supply minted.
  *   - faucet() mints 1,000 C4C to caller with a 24-hour cooldown per address.
- *   - Used for Base Sepolia testing only. Never deploy testnet=true to mainnet.
+ *   - Blocked on production chain IDs (Base mainnet = 8453, Ethereum mainnet = 1).
+ *   - Used for Base Sepolia testing only.
+ *
+ * @dev Ownable is inherited for future governance migration paths only.
+ *      The owner has NO privileges in this contract - cannot mint, pause,
+ *      blacklist, rescue, or upgrade. Ownership transfer/renounce has no
+ *      effect on token economics or faucet behavior.
  */
 contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
     uint256 public constant MAINNET_SUPPLY = 1_000_000_000 * 10 ** 18;
     uint256 public constant FAUCET_AMOUNT = 1_000 * 10 ** 18;
     uint256 public constant FAUCET_COOLDOWN = 1 days;
 
+    // Chain IDs where testnet=true is forbidden
+    uint256 private constant BASE_MAINNET_CHAIN_ID = 8453;
+    uint256 private constant ETHEREUM_MAINNET_CHAIN_ID = 1;
+
     bool public immutable isTestnet;
 
     mapping(address => uint256) public lastFaucetAt;
+
+    // -------------------------------------------------------------------------
+    // Custom errors
+    // -------------------------------------------------------------------------
+    /// @notice Thrown when faucet() is called on a mainnet deployment.
+    error C4CFaucetDisabled();
+
+    /// @notice Thrown when faucet() is called before the cooldown has elapsed.
+    /// @param account The caller address.
+    /// @param retryAt The earliest timestamp at which the caller may call again.
+    error C4CFaucetCooldownActive(address account, uint256 retryAt);
+
+    /// @notice Thrown when testnet=true is passed on a production chain.
+    /// @param chainId The chain ID at deploy time.
+    error C4CTestnetOnProductionChain(uint256 chainId);
 
     event FaucetUsed(address indexed recipient, uint256 amount);
 
     constructor(
         address initialOwner,
         bool testnet
-    ) ERC20("CurrencyForCivilization", "C4C")
-      ERC20Permit("CurrencyForCivilization")
-      Ownable(initialOwner) {
+    )
+        ERC20("CurrencyForCivilization", "C4C")
+        ERC20Permit("CurrencyForCivilization")
+        Ownable(initialOwner)
+    {
+        // H-01 fix: block testnet=true on production chains.
+        // Deploying with testnet=true on mainnet would create a permissionless
+        // unlimited-mint faucet with no recovery path (isTestnet is immutable).
+        if (testnet) {
+            uint256 id = block.chainid;
+            if (id == BASE_MAINNET_CHAIN_ID || id == ETHEREUM_MAINNET_CHAIN_ID) {
+                revert C4CTestnetOnProductionChain(id);
+            }
+        }
+
         isTestnet = testnet;
         if (!testnet) {
             _mint(initialOwner, MAINNET_SUPPLY);
@@ -49,11 +86,9 @@ contract C4CToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
      * @notice Dispense 1,000 C4C to caller. Testnet only. 24-hour cooldown per address.
      */
     function faucet() external {
-        require(isTestnet, "C4C: faucet disabled on mainnet");
-        require(
-            block.timestamp >= lastFaucetAt[msg.sender] + FAUCET_COOLDOWN,
-            "C4C: faucet cooldown active"
-        );
+        if (!isTestnet) revert C4CFaucetDisabled();
+        uint256 nextAt = lastFaucetAt[msg.sender] + FAUCET_COOLDOWN;
+        if (block.timestamp < nextAt) revert C4CFaucetCooldownActive(msg.sender, nextAt);
         lastFaucetAt[msg.sender] = block.timestamp;
         _mint(msg.sender, FAUCET_AMOUNT);
         emit FaucetUsed(msg.sender, FAUCET_AMOUNT);
